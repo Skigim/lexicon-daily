@@ -1,14 +1,16 @@
 /**
  * Utility functions for tracking quiz completion state
- * Uses localStorage to persist completion status across sessions
+ * Uses localStorage for anonymous users, syncs to Firestore for authenticated users
  */
+
+import { saveQuizCompletion, getCompletedQuizzes as getFirestoreCompletions, syncLocalToFirestore } from '../services/firestoreService';
 
 const STORAGE_KEY = 'lexicon_completed_quizzes';
 
 /**
- * Get the set of completed word IDs
+ * Get the set of completed word IDs from localStorage
  */
-export function getCompletedQuizzes(): Set<number> {
+export function getLocalCompletedQuizzes(): Set<number> {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored) {
@@ -22,12 +24,10 @@ export function getCompletedQuizzes(): Set<number> {
 }
 
 /**
- * Mark a quiz as completed
+ * Save completed quiz to localStorage
  */
-export function markQuizCompleted(wordId: number): void {
+function saveToLocalStorage(completed: Set<number>): void {
   try {
-    const completed = getCompletedQuizzes();
-    completed.add(wordId);
     localStorage.setItem(STORAGE_KEY, JSON.stringify([...completed]));
   } catch (e) {
     console.warn('Failed to save completed quiz to localStorage:', e);
@@ -35,15 +35,68 @@ export function markQuizCompleted(wordId: number): void {
 }
 
 /**
- * Check if a specific quiz is completed
+ * Mark a quiz as completed (localStorage + optionally Firestore)
  */
-export function isQuizCompleted(wordId: number): boolean {
-  return getCompletedQuizzes().has(wordId);
+export async function markQuizCompleted(wordId: number, userId?: string | null): Promise<void> {
+  // Always save to localStorage as backup
+  const completed = getLocalCompletedQuizzes();
+  completed.add(wordId);
+  saveToLocalStorage(completed);
+
+  // If user is signed in, also save to Firestore
+  if (userId) {
+    try {
+      await saveQuizCompletion(userId, wordId);
+    } catch (e) {
+      console.warn('Failed to save to Firestore:', e);
+    }
+  }
 }
 
 /**
- * Clear all completion data (useful for testing)
+ * Check if a specific quiz is completed (local check for speed)
  */
-export function clearCompletedQuizzes(): void {
+export function isQuizCompleted(wordId: number): boolean {
+  return getLocalCompletedQuizzes().has(wordId);
+}
+
+/**
+ * Get all completed quizzes - merges local and cloud data
+ */
+export async function getAllCompletedQuizzes(userId?: string | null): Promise<Set<number>> {
+  const localCompleted = getLocalCompletedQuizzes();
+  
+  if (!userId) {
+    return localCompleted;
+  }
+
+  try {
+    const cloudCompleted = await getFirestoreCompletions(userId);
+    // Merge both sets
+    return new Set([...localCompleted, ...cloudCompleted]);
+  } catch (e) {
+    console.warn('Failed to fetch from Firestore:', e);
+    return localCompleted;
+  }
+}
+
+/**
+ * Sync local completions to cloud when user signs in
+ */
+export async function syncCompletionsToCloud(userId: string): Promise<void> {
+  const localCompleted = getLocalCompletedQuizzes();
+  if (localCompleted.size > 0) {
+    try {
+      await syncLocalToFirestore(userId, localCompleted);
+    } catch (e) {
+      console.warn('Failed to sync to Firestore:', e);
+    }
+  }
+}
+
+/**
+ * Clear all local completion data
+ */
+export function clearLocalCompletedQuizzes(): void {
   localStorage.removeItem(STORAGE_KEY);
 }

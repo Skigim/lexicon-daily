@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { HelpCircle, Check, X } from 'lucide-react';
 import type { WordData } from '../types';
 import { markQuizCompleted } from '../utils/quizStorage';
+import { useAuth } from '../hooks/useAuth';
 
 interface QuizModuleProps {
   data: WordData;
@@ -9,6 +10,7 @@ interface QuizModuleProps {
 }
 
 const QuizModule: React.FC<QuizModuleProps> = ({ data, onComplete }) => {
+  const { user } = useAuth();
   const [selected, setSelected] = useState<number | null>(null);
   const [isCorrect, setIsCorrect] = useState<boolean | null>(null);
   const [currentWordId, setCurrentWordId] = useState(data.id);
@@ -20,7 +22,7 @@ const QuizModule: React.FC<QuizModuleProps> = ({ data, onComplete }) => {
     setIsCorrect(null);
   }
 
-  const handleOptionClick = (index: number) => {
+  const handleOptionClick = async (index: number) => {
     if (selected !== null) return; 
     setSelected(index);
     const correct = index === data.quiz.correctIndex;
@@ -28,7 +30,7 @@ const QuizModule: React.FC<QuizModuleProps> = ({ data, onComplete }) => {
     
     // Mark as completed if answered correctly
     if (correct) {
-      markQuizCompleted(data.id);
+      await markQuizCompleted(data.id, user?.uid);
       onComplete?.();
     }
   };
